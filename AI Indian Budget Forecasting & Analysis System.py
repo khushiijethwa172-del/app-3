@@ -1,295 +1,901 @@
+# ============================================================
+# 🇮🇳 AI Budget Prediction System
+# Cell 1 - Imports, UI, Dataset Upload & Dashboard
+# ============================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pdfplumber
-import re
 import plotly.express as px
+import plotly.graph_objects as go
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score
+)
 
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    GradientBoostingRegressor,
+    ExtraTreesRegressor,
+    AdaBoostRegressor
+)
+
+import joblib
+from io import BytesIO
+import base64
+
+# --------------------------
+# Streamlit Config
+# --------------------------
+
 st.set_page_config(
-    page_title="AI Budget Prediction System",
+    page_title="🇮🇳 AI Budget Prediction System",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 AI Budget Prediction System")
-st.write("Upload previous Indian Budget PDFs and predict next year's budget.")
-uploaded_files = st.file_uploader(
-    "Upload Budget PDFs",
-    type="pdf",
-    accept_multiple_files=True
+# --------------------------
+# Custom CSS
+# --------------------------
+
+st.markdown("""
+<style>
+
+.main{
+background:#F5F7FA;
+}
+
+.metric-card{
+background:white;
+padding:20px;
+border-radius:15px;
+box-shadow:0px 2px 10px rgba(0,0,0,.15);
+text-align:center;
+transition:0.3s;
+}
+
+.metric-card:hover{
+transform:scale(1.02);
+}
+
+.sidebar .sidebar-content{
+background:#0B3D91;
+}
+
+h1,h2,h3{
+color:#0B3D91;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# --------------------------
+# Title
+# --------------------------
+
+st.title("🇮🇳 AI Budget Prediction System")
+
+st.caption(
+    "Machine Learning based Budget Allocation Prediction Dashboard"
 )
-categories = [
-    "Agriculture",
-    "Education",
-    "Health",
-    "Defence",
-    "Railways",
-    "Infrastructure",
-    "MSME",
-    "Rural Development",
-    "Women",
-    "Tax Revenue"
-]
+
+# --------------------------
+# Sidebar
+# --------------------------
+
+st.sidebar.title("Navigation")
+
+page = st.sidebar.radio(
+    "Select Page",
+    [
+        "Home",
+        "Dataset Explorer",
+        "Visualizations",
+        "Machine Learning",
+        "Prediction",
+        "Analytics"
+    ]
+)
+
+st.sidebar.markdown("---")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Budget CSV",
+    type=["csv"]
+)
+
+# --------------------------
+# Cache
+# --------------------------
+
 @st.cache_data
-def extract_pdf(pdf):
+def load_data(file):
+    return pd.read_csv(file)
 
-    rows = []
+# --------------------------
+# If no file
+# --------------------------
 
-    with pdfplumber.open(pdf) as pdf_file:
+if uploaded_file is None:
 
-        for page in pdf_file.pages:
+    st.info("⬅ Upload your Budget CSV from the sidebar.")
 
-            text = page.extract_text()
+    st.stop()
 
-            if text:
+# --------------------------
+# Read CSV
+# --------------------------
 
-                for line in text.split("\n"):
+df = load_data(uploaded_file)
 
-                    for category in categories:
+# --------------------------
+# Auto Detect Columns
+# --------------------------
 
-                        if category.lower() in line.lower():
+columns = {c.lower(): c for c in df.columns}
 
-                            numbers = re.findall(r'[\d,]+', line)
+year_col = None
+sector_col = None
+budget_col = None
 
-                            if numbers:
+for c in df.columns:
 
-                                amount = numbers[-1].replace(",", "")
+    x = c.lower()
 
-                                rows.append([category, float(amount)])
+    if "year" in x:
+        year_col = c
 
-    return rows
-    all_data = []
+    elif "sector" in x or "ministry" in x:
+        sector_col = c
 
-if uploaded_files:
+    elif "budget" in x or "allocation" in x or "amount" in x:
+        budget_col = c
+
+if year_col is None or sector_col is None or budget_col is None:
+
+    st.error("Unable to detect required columns.")
+
+    st.write("CSV must contain:")
+
+    st.write("- Year")
+
+    st.write("- Sector")
+
+    st.write("- Budget_Allocation")
+
+    st.stop()
+
+# --------------------------
+# Clean Data
+# --------------------------
+
+df = df[[year_col, sector_col, budget_col]]
+
+df.columns = [
+    "Year",
+    "Sector",
+    "Budget"
+]
+
+df["Year"] = df["Year"].astype(int)
+
+df["Budget"] = pd.to_numeric(
+    df["Budget"],
+    errors="coerce"
+)
+
+df = df.dropna()
+
+# --------------------------
+# Home Page
+# --------------------------
+
+if page == "Home":
+
+    latest_year = df["Year"].max()
+
+    latest = df[df["Year"] == latest_year]
+
+    total_budget = latest["Budget"].sum()
+
+    avg_budget = latest["Budget"].mean()
+
+    highest = latest["Budget"].max()
+
+    lowest = latest["Budget"].min()
+
+    sectors = latest["Sector"].nunique()
+
+    years = df["Year"].nunique()
+
+    c1,c2,c3,c4 = st.columns(4)
+
+    c1.metric(
+        "Latest Year",
+        latest_year
+    )
+
+    c2.metric(
+        "Total Budget",
+        f"₹ {total_budget:,.0f}"
+    )
+
+    c3.metric(
+        "Sectors",
+        sectors
+    )
+
+    c4.metric(
+        "Years",
+        years
+    )
+
+    c1,c2,c3 = st.columns(3)
+
+    c1.metric(
+        "Average",
+        f"{avg_budget:,.0f}"
+    )
+
+    c2.metric(
+        "Highest",
+        f"{highest:,.0f}"
+    )
+
+    c3.metric(
+        "Lowest",
+        f"{lowest:,.0f}"
+    )
+
+    st.markdown("---")
+
+    trend = (
+        df.groupby("Year")["Budget"]
+        .sum()
+        .reset_index()
+    )
+
+    fig = px.line(
+        trend,
+        x="Year",
+        y="Budget",
+        markers=True,
+        title="Budget Trend"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    fig2 = px.pie(
+        latest,
+        names="Sector",
+        values="Budget",
+        title=f"Budget Distribution ({latest_year})"
+    )
+
+    st.plotly_chart(
+        fig2,
+        use_container_width=True
+    )
+
+# --------------------------
+# Dataset Explorer
+# --------------------------
+
+elif page == "Dataset Explorer":
+
+    st.subheader("Dataset Preview")
+
+    st.dataframe(df)
+
+    st.write("Rows :", len(df))
+
+    st.write("Columns :", len(df.columns))
+
+    st.write("Missing Values")
+
+    st.write(df.isna().sum())
+
+    st.write("Duplicates")
+
+    st.write(df.duplicated().sum())
+
+    st.write("Data Types")
+
+    st.write(df.dtypes)
+
+    st.write("Summary")
+
+    st.dataframe(df.describe())
+
+    search = st.text_input(
+        "Search Sector"
+    )
+
+    if search:
+
+        temp = df[
+            df["Sector"].str.contains(
+                search,
+                case=False
+            )
+        ]
+
+        st.dataframe(temp)
+
+    year = st.selectbox(
+        "Filter Year",
+        sorted(df["Year"].unique())
+    )
+
+    st.dataframe(
+        df[df["Year"] == year]
+    )
+    # ============================================================
+# CELL 2
+# Visualizations + Machine Learning
+# ============================================================
+
+elif page == "Visualizations":
+
+    st.header("📊 Budget Visualizations")
+
+    # ------------------------
+    # Year Wise Budget Trend
+    # ------------------------
+
+    yearly = (
+        df.groupby("Year")["Budget"]
+        .sum()
+        .reset_index()
+    )
+
+    fig = px.line(
+        yearly,
+        x="Year",
+        y="Budget",
+        markers=True,
+        title="Year Wise Budget Trend"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Top 10 Sectors
+    # ------------------------
+
+    latest_year = df["Year"].max()
+
+    latest = df[df["Year"] == latest_year]
+
+    top10 = latest.sort_values(
+        "Budget",
+        ascending=False
+    ).head(10)
+
+    fig = px.bar(
+        top10,
+        x="Sector",
+        y="Budget",
+        color="Budget",
+        title="Top 10 Sectors"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Bottom 10
+    # ------------------------
+
+    bottom10 = latest.sort_values(
+        "Budget"
+    ).head(10)
+
+    fig = px.bar(
+        bottom10,
+        x="Sector",
+        y="Budget",
+        color="Budget",
+        title="Bottom 10 Sectors"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Pie Chart
+    # ------------------------
+
+    fig = px.pie(
+        latest,
+        names="Sector",
+        values="Budget",
+        hole=.45,
+        title="Budget Distribution"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Histogram
+    # ------------------------
+
+    fig = px.histogram(
+        df,
+        x="Budget",
+        nbins=25,
+        title="Budget Distribution Histogram"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Box Plot
+    # ------------------------
+
+    fig = px.box(
+        df,
+        y="Budget",
+        title="Budget Box Plot"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Scatter Plot
+    # ------------------------
+
+    fig = px.scatter(
+        df,
+        x="Year",
+        y="Budget",
+        color="Sector",
+        title="Scatter Plot"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+    # ------------------------
+    # Area Chart
+    # ------------------------
+
+    fig = px.area(
+        yearly,
+        x="Year",
+        y="Budget",
+        title="Area Chart"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# ============================================================
+# MACHINE LEARNING
+# ============================================================
+
+elif page == "Machine Learning":
+
+    st.header("🤖 Machine Learning")
+
+    encoder = LabelEncoder()
+
+    df["Sector_Code"] = encoder.fit_transform(
+        df["Sector"]
+    )
+
+    X = df[
+        [
+            "Year",
+            "Sector_Code"
+        ]
+    ]
+
+    y = df["Budget"]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42
+    )
+
+    models = {
+
+        "Linear Regression":
+            LinearRegression(),
+
+        "Decision Tree":
+            DecisionTreeRegressor(),
+
+        "Random Forest":
+            RandomForestRegressor(
+                n_estimators=200,
+                random_state=42
+            ),
+
+        "Gradient Boosting":
+            GradientBoostingRegressor(),
+
+        "Extra Trees":
+            ExtraTreesRegressor(),
+
+        "AdaBoost":
+            AdaBoostRegressor()
+
+    }
+
+    results = []
+
+    best_model = None
+
+    best_score = -999
 
     progress = st.progress(0)
 
-    for i, file in enumerate(uploaded_files):
+    for i, (name, model) in enumerate(models.items()):
 
-        year = re.findall(r"\d{4}", file.name)
+        model.fit(
+            X_train,
+            y_train
+        )
 
-        if year:
-            year = int(year[0])
-        else:
-            year = 2020 + i
+        pred = model.predict(
+            X_test
+        )
 
-        extracted = extract_pdf(file)
+        mae = mean_absolute_error(
+            y_test,
+            pred
+        )
 
-        for row in extracted:
-
-            all_data.append(
-                {
-                    "Year": year,
-                    "Budget Category": row[0],
-                    "Budget Allocation": row[1]
-                }
+        rmse = np.sqrt(
+            mean_squared_error(
+                y_test,
+                pred
             )
+        )
 
-        progress.progress((i + 1) / len(uploaded_files))
-        if len(all_data) > 0:
+        r2 = r2_score(
+            y_test,
+            pred
+        )
 
-    df = pd.DataFrame(all_data)
+        results.append(
+            [
+                name,
+                round(mae,2),
+                round(rmse,2),
+                round(r2,4)
+            ]
+        )
 
-    st.success("✅ Budget Data Extracted Successfully")
+        if r2 > best_score:
 
-    st.subheader("Extracted Dataset")
+            best_score = r2
 
-    st.dataframe(df)
-        df.drop_duplicates(inplace=True)
+            best_model = model
 
-    df.dropna(inplace=True)
+            best_name = name
 
-    df["Budget Allocation"] = pd.to_numeric(
-        df["Budget Allocation"],
-        errors="coerce"
+        progress.progress(
+            (i+1)/len(models)
+        )
+
+    results = pd.DataFrame(
+
+        results,
+
+        columns=[
+            "Model",
+            "MAE",
+            "RMSE",
+            "R2 Score"
+        ]
+
     )
 
-    df.dropna(inplace=True)
-
-    st.subheader("Clean Dataset")
-
-    st.dataframe(df)
-    st.subheader("Dataset Summary")
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Rows", len(df))
-
-    col2.metric(
-        "Categories",
-        df["Budget Category"].nunique()
+    st.subheader(
+        "Model Performance"
     )
 
-    col3.metric(
-        "Years",
-        df["Year"].nunique()
-    )
-    st.subheader("Budget Trend")
+    st.dataframe(results)
 
-    fig = px.line(
-        df,
-        x="Year",
-        y="Budget Allocation",
-        color="Budget Category",
-        markers=True
+    st.success(
+        f"🏆 Best Model : {best_name}"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-    latest = df.groupby(
-        "Budget Category"
-    )["Budget Allocation"].mean().reset_index()
+    joblib.dump(
+        best_model,
+        "saved_model.pkl"
+    )
+
+    st.success(
+        "Model Saved Successfully"
+    )
 
     fig = px.bar(
-        latest,
-        x="Budget Category",
-        y="Budget Allocation",
-        color="Budget Category"
+
+        results,
+
+        x="Model",
+
+        y="R2 Score",
+
+        color="R2 Score",
+
+        title="Model Comparison"
+
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-    fig = px.pie(
-        latest,
-        values="Budget Allocation",
-        names="Budget Category"
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+    # ============================================================
+# CELL 3
+# Prediction + Analytics + Export
+# ============================================================
+
+elif page == "Prediction":
+
+    st.header("🔮 Future Budget Prediction")
+
+    try:
+        model = joblib.load("saved_model.pkl")
+    except:
+        st.error("Please train the model first.")
+        st.stop()
+
+    future_year = st.number_input(
+        "Select Future Year",
+        min_value=int(df["Year"].max() + 1),
+        value=int(df["Year"].max() + 1),
+        step=1
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-st.subheader("🤖 AI Budget Prediction")
+    encoder = LabelEncoder()
+    encoder.fit(df["Sector"])
 
-predictions = []
+    predictions = []
 
-for category in df["Budget Category"].unique():
+    latest = df[df["Year"] == df["Year"].max()]
 
-    temp = df[df["Budget Category"] == category]
+    for sector in encoder.classes_:
 
-    if len(temp) >= 2:
+        sector_code = encoder.transform([sector])[0]
 
-        X = temp[["Year"]]
+        pred = model.predict(
+            [[future_year, sector_code]]
+        )[0]
 
-        y = temp["Budget Allocation"]
+        previous = latest[
+            latest["Sector"] == sector
+        ]["Budget"]
 
-        model = LinearRegression()
-
-        model.fit(X, y)
-
-        next_year = np.array([[temp["Year"].max() + 1]])
-
-        prediction = model.predict(next_year)[0]
-
-        predictions.append(
-            {
-                "Budget Category": category,
-                "Predicted Allocation": round(prediction,2)
-            }
+        previous_budget = (
+            previous.iloc[0]
+            if len(previous) > 0
+            else 0
         )
-        prediction_df = pd.DataFrame(predictions)
 
-st.subheader("📈 Next Year Budget Prediction")
+        growth = (
+            (pred - previous_budget)
+            / previous_budget * 100
+            if previous_budget != 0
+            else 0
+        )
 
-st.dataframe(prediction_df)
-growth = []
+        predictions.append([
+            sector,
+            previous_budget,
+            pred,
+            growth
+        ])
 
-for category in prediction_df["Budget Category"]:
+    prediction_df = pd.DataFrame(
+        predictions,
+        columns=[
+            "Sector",
+            "Previous Budget",
+            "Predicted Budget",
+            "Growth %"
+        ]
+    )
 
-    current = df[df["Budget Category"] == category]
+    prediction_df["Trend"] = np.where(
+        prediction_df["Growth %"] >= 0,
+        "📈 Increase",
+        "📉 Decrease"
+    )
 
-    latest = current.sort_values("Year").iloc[-1]["Budget Allocation"]
+    st.dataframe(
+        prediction_df,
+        use_container_width=True
+    )
 
-    predicted = prediction_df[
-        prediction_df["Budget Category"] == category
-    ]["Predicted Allocation"].values[0]
+    csv = prediction_df.to_csv(index=False)
 
-    percent = ((predicted-latest)/latest)*100
+    st.download_button(
+        "⬇ Download CSV",
+        csv,
+        "Budget_Prediction.csv",
+        "text/csv"
+    )
 
-    growth.append(round(percent,2))
+    excel = BytesIO()
 
-prediction_df["Growth %"] = growth
+    with pd.ExcelWriter(
+        excel,
+        engine="openpyxl"
+    ) as writer:
 
-st.dataframe(prediction_df)
-mae_list = []
+        prediction_df.to_excel(
+            writer,
+            index=False
+        )
 
-rmse_list = []
+    st.download_button(
+        "⬇ Download Excel",
+        excel.getvalue(),
+        "Budget_Prediction.xlsx"
+    )
 
-r2_list = []
+# ============================================================
+# ANALYTICS
+# ============================================================
 
-for category in df["Budget Category"].unique():
+elif page == "Analytics":
 
-    temp = df[df["Budget Category"] == category]
+    st.header("📈 Budget Analytics")
 
-    if len(temp)>=2:
+    latest = df[df["Year"] == df["Year"].max()]
 
-        X=temp[["Year"]]
+    c1, c2 = st.columns(2)
 
-        y=temp["Budget Allocation"]
+    highest = latest.loc[
+        latest["Budget"].idxmax()
+    ]
 
-        model=LinearRegression()
+    lowest = latest.loc[
+        latest["Budget"].idxmin()
+    ]
 
-        model.fit(X,y)
+    c1.metric(
+        "Highest Funded Sector",
+        highest["Sector"]
+    )
 
-        pred=model.predict(X)
+    c2.metric(
+        "Lowest Funded Sector",
+        lowest["Sector"]
+    )
 
-        mae_list.append(mean_absolute_error(y,pred))
+    st.metric(
+        "Average Budget",
+        f"₹ {latest['Budget'].mean():,.0f}"
+    )
 
-        rmse_list.append(np.sqrt(mean_squared_error(y,pred)))
+    st.metric(
+        "Median Budget",
+        f"₹ {latest['Budget'].median():,.0f}"
+    )
 
-        r2_list.append(r2_score(y,pred))
+    st.metric(
+        "Standard Deviation",
+        f"{latest['Budget'].std():,.2f}"
+    )
 
-st.subheader("📊 Model Performance")
+    growth = (
+        df.groupby("Sector")
+        .apply(
+            lambda x:
+            (
+                x.sort_values("Year")
+                .iloc[-1]["Budget"]
+                -
+                x.sort_values("Year")
+                .iloc[0]["Budget"]
+            )
+        )
+        .reset_index(name="Growth")
+    )
 
-col1,col2,col3=st.columns(3)
+    fig = px.bar(
+        growth.sort_values(
+            "Growth",
+            ascending=False
+        ),
+        x="Sector",
+        y="Growth",
+        color="Growth",
+        title="Sector Growth"
+    )
 
-col1.metric("MAE",round(np.mean(mae_list),2))
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
-col2.metric("RMSE",round(np.mean(rmse_list),2))
+    st.subheader("🏆 Budget Ranking")
 
-col3.metric("R² Score",round(np.mean(r2_list),2))
-fig = px.bar(
-    prediction_df,
-    x="Budget Category",
-    y="Predicted Allocation",
-    color="Growth %",
-    title="Predicted Budget Allocation"
+    rank = latest.sort_values(
+        "Budget",
+        ascending=False
+    )
+
+    rank["Rank"] = range(
+        1,
+        len(rank) + 1
+    )
+
+    st.dataframe(rank)
+
+    st.subheader("💡 AI Insights")
+
+    st.success(
+        f"""
+• Highest funded sector is **{highest['Sector']}**
+
+• Lowest funded sector is **{lowest['Sector']}**
+
+• Total Budget :
+₹ {latest['Budget'].sum():,.0f}
+
+• Average Allocation :
+₹ {latest['Budget'].mean():,.0f}
+
+• The trained model can now be used to forecast future Union Budgets.
+"""
+    )
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.markdown("---")
+
+st.caption(
+"""
+🇮🇳 AI Budget Prediction System
+
+Built using Streamlit • Plotly • Scikit-Learn • Pandas
+"""
 )
+encoder = LabelEncoder()
+encoder.fit(df["Sector"])
+df["Sector_Code"] = encoder.transform(df["Sector"])
 
-st.plotly_chart(fig,use_container_width=True)
-csv = prediction_df.to_csv(index=False).encode("utf-8")
-
-st.download_button(
-
-    "⬇ Download Prediction CSV",
-
-    csv,
-
-    "Budget_Prediction.csv",
-
-    "text/csv"
-
-)
-st.subheader("📊 Budget Insights")
-
-increase = prediction_df.sort_values(
-    "Growth %",
-    ascending=False
-).head(5)
-
-decrease = prediction_df.sort_values(
-    "Growth %",
-    ascending=True
-).head(5)
-
-col1,col2=st.columns(2)
-
-with col1:
-
-    st.success("Top Increased")
-
-    st.dataframe(increase)
-
-with col2:
-
-    st.error("Top Decreased")
-
-    st.dataframe(decrease)
-    
+joblib.dump(encoder, "label_encoder.pkl")
+encoder = LabelEncoder()
+encoder.fit(df["Sector"])
+encoder = joblib.load("label_encoder.pkl")
